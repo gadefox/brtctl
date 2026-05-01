@@ -68,6 +68,7 @@ int ddc_detect(void) {
 
 int get_vcp_resp(int fd, uint8_t vcp) {
   uint8_t resp[11];
+
   int n = read(fd, resp, sizeof(resp));
   if (n != sizeof(resp)) {
     perror("get_vcp: read");
@@ -98,6 +99,7 @@ int get_vcp_resp(int fd, uint8_t vcp) {
 
 int set_vcp(int fd, uint8_t vcp, uint16_t val) {
   uint8_t req[7];
+
   req[0] = 0x51;
   req[1] = 0x84;  // length (0x80 + 4 bytes)
   req[2] = 0x03;  // SET_VCP opcode
@@ -116,6 +118,7 @@ int set_vcp(int fd, uint8_t vcp, uint16_t val) {
 
 int get_vcp(int fd, uint8_t vcp) {
   uint8_t req[5];
+
   req[0] = 0x51;
   req[1] = 0x82;  // length (0x80 + 2 bytes)
   req[2] = 0x01;  // GET_VCP opcode
