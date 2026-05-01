@@ -1,4 +1,4 @@
-// Copyright (c) 2026 gadefox <gadefoxren@gmail.com>
+// Copyright (C) 2026 gadefox <gadefoxren@gmail.com>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
@@ -36,10 +36,10 @@ void print_raw(uint8_t *data, size_t count) {
 }
 
 uint8_t checksum(uint8_t init, uint8_t *data, size_t count) {
-  uint8_t c = init;
+  uint8_t crc = init;
   for (size_t i = 0; i < count; i++)
-    c ^= data[i];
-  return c;
+    crc ^= data[i];
+  return crc;
 }
 
 int ddc_detect(void) {
@@ -81,13 +81,13 @@ int get_vcp_resp(int fd, uint8_t vcp) {
   if (resp[0] != 0x6E ||  // DDC_ADDR << 1
       resp[1] != 0x88 ||  // len = data & 0x7F (8)
       resp[2] != 0x02 ||  // GET_VCP_REPLY
-      resp[3] != 0    ||  // result code
+      resp[3] != 0x00 ||  // result code
       resp[4] != vcp) {
     fprintf(stderr, "get_vcp: response");
     return -1;
   }
 
-  uint8_t crc = checksum(0x50, resp, 10);
+  uint8_t crc = checksum(0xB4, resp + 4, 6);  // 0xB4 = 0x50 ^ 0x6E ^ 0x88 ^ 0x02 ^ 0x00
   if (crc != resp[10]) {
     fprintf(stderr, "get_vcp: checksum");
     return -1;
@@ -104,7 +104,7 @@ int set_vcp(int fd, uint8_t vcp, uint16_t val) {
   req[3] = vcp;
   req[4] = val >> 8;
   req[5] = val & 0xFF;
-  req[6] = checksum(0x6E, req, 6);
+  req[6] = checksum(0xB8, req + 3, 3);  // 0xB8 = 0x6E ^ 0x51 ^ 0x84 ^ 0x03
 
   if (write(fd, req, sizeof(req)) != sizeof(req)) {
     perror("set_vcp: write");
@@ -120,7 +120,7 @@ int get_vcp(int fd, uint8_t vcp) {
   req[1] = 0x82;  // length (0x80 + 2 bytes)
   req[2] = 0x01;  // GET_VCP opcode
   req[3] = vcp;
-  req[4] = checksum(0x6E, req, 4);
+  req[4] = 0xBC ^ vcp;  // 0xBC = 0x6E ^ 0x51 ^ 0x82 ^ 0x01
 
   if (write(fd, req, sizeof(req)) != sizeof(req)) {
     perror("get_vcp: write");
