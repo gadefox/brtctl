@@ -1,4 +1,4 @@
-// Copyright (C) 2026 gadefox <gadefoxren@gmail.com>
+// Copyright (c) 2026 gadefox <gadefoxren@gmail.com>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 /*
