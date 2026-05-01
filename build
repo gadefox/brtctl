@@ -1,0 +1,3 @@
+#!/bin/rc
+
+gcc -O2 -o brightctl main.c
