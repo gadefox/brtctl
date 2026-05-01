@@ -130,7 +130,7 @@ int get_vcp(int fd, uint8_t vcp) {
     return -1;
   }
 
-  usleep(50000);
+  usleep(100000);
   return get_vcp_resp(fd, vcp);
 }
 
@@ -152,7 +152,7 @@ int handle_set(int fd, char *arg10h, char *arg12h) {
   if (set_vcp(fd, 0x10, val10h) < 0)
     return 1;
 
-  usleep(50000);
+  usleep(100000);
 
   uint16_t val12h = (uint16_t)strtol(arg12h, NULL, 10);
   if (set_vcp(fd, 0x12, val12h) < 0)
