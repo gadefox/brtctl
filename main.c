@@ -35,10 +35,12 @@ void print_raw(uint8_t *data, size_t count) {
   printf("\n");
 }
 
+#define CRC(a, b)  ((a) ^ (b))
+
 uint8_t checksum(uint8_t init, uint8_t *data, size_t count) {
   uint8_t crc = init;
   for (size_t i = 0; i < count; i++)
-    crc ^= data[i];
+    crc = CRC(crc, data[i]);
   return crc;
 }
 
@@ -123,14 +125,14 @@ int get_vcp(int fd, uint8_t vcp) {
   req[1] = 0x82;  // length (0x80 + 2 bytes)
   req[2] = 0x01;  // GET_VCP opcode
   req[3] = vcp;
-  req[4] = 0xBC ^ vcp;  // 0xBC = 0x6E ^ 0x51 ^ 0x82 ^ 0x01
+  req[4] = CRC(0xBC, vcp);  // 0xBC = 0x6E ^ 0x51 ^ 0x82 ^ 0x01
 
   if (write(fd, req, sizeof(req)) != sizeof(req)) {
     perror("get_vcp: write");
     return -1;
   }
 
-  usleep(100000);
+  usleep(50000);
   return get_vcp_resp(fd, vcp);
 }
 
