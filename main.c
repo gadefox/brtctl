@@ -41,12 +41,13 @@
 #define DDC_SUCCESS     0
 #define DDC_UNSUPPORTED 1
 
-// VCP
-#define VCP_BRT  0x10
-#define VCP_CT   0x12
-
+// VCP type
 #define VCP_TYPE_PARAM      0
 #define VCP_TYPE_MOMENTARY  1
+
+// VCPs
+#define VCP_BRT  0x10
+#define VCP_CT   0x12
 
 #if LOGS
 
