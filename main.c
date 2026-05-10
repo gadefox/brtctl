@@ -1,46 +1,68 @@
 // Copyright (c) 2026 gadefox <gadefoxren@gmail.com>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-/*
- * DDC result codes:
- *  0x00 = No error
- *  0x01 = Unsupported VCP code
- */
-
-/*
- * DDC opcodes:
- *  0x01 = GET_VCP_REQUEST
- *  0x02 = GET_VCP_REPLY
- *  0x03 = SET_VCP
- *  0x07 = GET_TIMING_REPLY
- *  0x09 = SET_TIMING
- *  0xE1 = NULL_RESPONSE
- */
-
 #include <fcntl.h>
 #include <glob.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
+#include <sys/ioctl.h>
 
-#define DEBUG  0
+#define LOGS  0
+
+#define HIBYTE(x)  (((x) >> 8) & 0xFF)
+#define LOBYTE(x)  ((x) & 0xFF)
+
+// I2C
+#define I2C_WRITE(addr)  ((addr) << 1)
+#define I2C_READ(addr)   (((addr) << 1) | 1)
+
+#define I2C_MONITOR_ADDR   0x37
+#define I2C_MONITOR_WRITE  I2C_WRITE(I2C_MONITOR_ADDR)
+
+#define I2C_HOST_ADDR   0x28
+#define I2C_HOST_WRITE  I2C_WRITE(I2C_HOST_ADDR)
+#define I2C_HOST_READ   I2C_READ(I2C_HOST_ADDR)
+
+// DDC
+#define DDC_SIZE(x)  (0x80 | (x))
+
+// DDC opcodes
+#define GET_VCP_REQ     1
+#define GET_VCP_RESP    2
+#define SET_VCP         3
+#define GET_TIMING_RESP 7
+#define SET_TIMING      9
+#define NULL_RESP       0xE1
+
+// DDC result codes
+#define DDC_SUCCESS     0
+#define DDC_UNSUPPORTED 1
+
+// VCP
+#define VCP_BRT  0x10
+#define VCP_CT   0x12
+
+#define VCP_TYPE_PARAM      0
+#define VCP_TYPE_MOMENTARY  1
+
+#if LOGS
 
 void print_raw(uint8_t *data, size_t count) {
-  printf("RAW (%d bytes):", count);
+  printf("RAW (%lu bytes):", count);
   for (size_t i = 0; i < count; i++)
     printf(" %02X", data[i]);
-  printf("\n");
+  putchar('\n');
 }
 
-#define CRC(a, b)  ((a) ^ (b))
+#endif  /* LOGS */
 
 uint8_t checksum(uint8_t init, uint8_t *data, size_t count) {
   uint8_t crc = init;
   for (size_t i = 0; i < count; i++)
-    crc = CRC(crc, data[i]);
+    crc ^= data[i];
   return crc;
 }
 
@@ -56,7 +78,7 @@ int ddc_detect(void) {
     if (fd < 0)
       continue;
 
-    if (ioctl(fd, I2C_SLAVE, 0x37) == 0) {
+    if (ioctl(fd, I2C_SLAVE, I2C_MONITOR_ADDR) == 0) {
       found = fd;
       break;
     }
@@ -68,7 +90,7 @@ int ddc_detect(void) {
   return found;
 }
 
-int get_vcp_resp(int fd, uint8_t vcp) {
+int get_vcp_resp(int fd, uint8_t vcp, uint8_t type) {
   uint8_t resp[11];
 
   int n = read(fd, resp, sizeof(resp));
@@ -77,20 +99,21 @@ int get_vcp_resp(int fd, uint8_t vcp) {
     return -1;
   }
 
-#if DEBUG
+#if LOGS
   print_raw(resp, n);
 #endif
 
-  if (resp[0] != 0x6E ||  // DDC_ADDR << 1
-      resp[1] != 0x88 ||  // len = data & 0x7F (8)
-      resp[2] != 0x02 ||  // GET_VCP_REPLY
-      resp[3] != 0x00 ||  // result code
-      resp[4] != vcp) {
+  if (resp[0] != I2C_MONITOR_WRITE ||
+      resp[1] != DDC_SIZE(8) ||
+      resp[2] != GET_VCP_RESP ||
+      resp[3] != DDC_SUCCESS ||
+      resp[4] != vcp ||
+      resp[5] != type) {
     fprintf(stderr, "get_vcp: response");
     return -1;
   }
 
-  uint8_t crc = checksum(0xB4, resp + 4, 6);  // 0xB4 = 0x50 ^ 0x6E ^ 0x88 ^ 0x02 ^ 0x00
+  uint8_t crc = checksum(I2C_HOST_WRITE, resp, sizeof(resp) - 1);
   if (crc != resp[10]) {
     fprintf(stderr, "get_vcp: checksum");
     return -1;
@@ -102,13 +125,13 @@ int get_vcp_resp(int fd, uint8_t vcp) {
 int set_vcp(int fd, uint8_t vcp, uint16_t val) {
   uint8_t req[7];
 
-  req[0] = 0x51;
-  req[1] = 0x84;  // length (0x80 + 4 bytes)
-  req[2] = 0x03;  // SET_VCP opcode
+  req[0] = I2C_HOST_READ;
+  req[1] = DDC_SIZE(4);
+  req[2] = SET_VCP;
   req[3] = vcp;
-  req[4] = val >> 8;
-  req[5] = val & 0xFF;
-  req[6] = checksum(0xB8, req + 3, 3);  // 0xB8 = 0x6E ^ 0x51 ^ 0x84 ^ 0x03
+  req[4] = HIBYTE(val);
+  req[5] = LOBYTE(val);
+  req[6] = checksum(I2C_MONITOR_WRITE, req, sizeof(req) - 1);
 
   if (write(fd, req, sizeof(req)) != sizeof(req)) {
     perror("set_vcp: write");
@@ -118,14 +141,14 @@ int set_vcp(int fd, uint8_t vcp, uint16_t val) {
   return 0;
 }
 
-int get_vcp(int fd, uint8_t vcp) {
+int get_vcp(int fd, uint8_t vcp, uint8_t type) {
   uint8_t req[5];
 
-  req[0] = 0x51;
-  req[1] = 0x82;  // length (0x80 + 2 bytes)
-  req[2] = 0x01;  // GET_VCP opcode
+  req[0] = I2C_HOST_READ;
+  req[1] = DDC_SIZE(2);
+  req[2] = GET_VCP_REQ;
   req[3] = vcp;
-  req[4] = CRC(0xBC, vcp);  // 0xBC = 0x6E ^ 0x51 ^ 0x82 ^ 0x01
+  req[4] = checksum(I2C_MONITOR_WRITE, req, sizeof(req) - 1);
 
   if (write(fd, req, sizeof(req)) != sizeof(req)) {
     perror("get_vcp: write");
@@ -133,31 +156,31 @@ int get_vcp(int fd, uint8_t vcp) {
   }
 
   usleep(50000);
-  return get_vcp_resp(fd, vcp);
+  return get_vcp_resp(fd, vcp, type);
 }
 
 int handle_get(int fd) {
-  int val10h = get_vcp(fd, 0x10);
-  if (val10h < 0)
+  int brt = get_vcp(fd, VCP_BRT, VCP_TYPE_PARAM);
+  if (brt < 0)
     return 1;
 
-  int val12h = get_vcp(fd, 0x12);
-  if (val12h < 0)
+  int ct = get_vcp(fd, VCP_CT, VCP_TYPE_PARAM);
+  if (ct < 0)
     return 1;
 
-  printf("%d %d", val10h, val12h);
+  printf("%d %d", brt, ct);
   return 0;
 }
 
-int handle_set(int fd, char *arg10h, char *arg12h) {
-  uint16_t val10h = (uint16_t)strtol(arg10h, NULL, 10);
-  if (set_vcp(fd, 0x10, val10h) < 0)
+int handle_set(int fd, char *sbrt, char *sct) {
+  uint16_t brt = (uint16_t)strtol(sbrt, NULL, 10);
+  if (set_vcp(fd, VCP_BRT, brt) < 0)
     return 1;
 
   usleep(100000);
 
-  uint16_t val12h = (uint16_t)strtol(arg12h, NULL, 10);
-  if (set_vcp(fd, 0x12, val12h) < 0)
+  uint16_t ct = (uint16_t)strtol(sct, NULL, 10);
+  if (set_vcp(fd, VCP_CT, ct) < 0)
     return 1;
 
   return 0;
